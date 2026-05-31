@@ -3,8 +3,15 @@
 #include <FastLED.h>
 #include <TinyGPSPlus.h>
 #include <driver/i2s.h>
+
+#ifndef ENABLE_AUDIO_PROMPT
+#define ENABLE_AUDIO_PROMPT 0
+#endif
+
+#if ENABLE_AUDIO_PROMPT
 #include <math.h>
 #include "warning_prompt.h"
+#endif
 
 namespace {
 
@@ -22,7 +29,9 @@ constexpr int GPS_RX_PIN = 3;  // ESP32-C3 receives ATGM336H NMEA TXD.
 constexpr int I2S_BCLK_PIN = 4;
 constexpr int I2S_LRCLK_PIN = 5;
 constexpr int I2S_DIN_PIN = 6;   // INMP441 SD.
-constexpr int I2S_DOUT_PIN = 7;  // MAX98357A DIN.
+#if ENABLE_AUDIO_PROMPT
+constexpr int I2S_DOUT_PIN = 7;  // Optional MAX98357A DIN.
+#endif
 
 constexpr int LED_DATA_PIN = 10;
 constexpr int LED_COUNT = 8;
@@ -152,7 +161,11 @@ void serviceGps(uint32_t durationMs) {
 
 bool initI2s() {
   i2s_config_t config = {};
-  config.mode = static_cast<i2s_mode_t>(I2S_MODE_MASTER | I2S_MODE_RX | I2S_MODE_TX);
+  uint32_t i2sMode = I2S_MODE_MASTER | I2S_MODE_RX;
+#if ENABLE_AUDIO_PROMPT
+  i2sMode |= I2S_MODE_TX;
+#endif
+  config.mode = static_cast<i2s_mode_t>(i2sMode);
   config.sample_rate = SAMPLE_RATE;
   config.bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT;
   config.channel_format = I2S_CHANNEL_FMT_ONLY_LEFT;
@@ -161,14 +174,18 @@ bool initI2s() {
   config.dma_buf_count = 8;
   config.dma_buf_len = 256;
   config.use_apll = false;
-  config.tx_desc_auto_clear = true;
+  config.tx_desc_auto_clear = ENABLE_AUDIO_PROMPT;
   config.fixed_mclk = 0;
 
   i2s_pin_config_t pins = {};
   pins.mck_io_num = I2S_PIN_NO_CHANGE;
   pins.bck_io_num = I2S_BCLK_PIN;
   pins.ws_io_num = I2S_LRCLK_PIN;
+#if ENABLE_AUDIO_PROMPT
   pins.data_out_num = I2S_DOUT_PIN;
+#else
+  pins.data_out_num = I2S_PIN_NO_CHANGE;
+#endif
   pins.data_in_num = I2S_DIN_PIN;
 
   esp_err_t err = i2s_driver_install(I2S_NUM_0, &config, 0, nullptr);
@@ -257,6 +274,7 @@ void setAllLeds(const CRGB &color) {
   FastLED.show();
 }
 
+#if ENABLE_AUDIO_PROMPT
 void writeI2sTone(float frequency, uint32_t durationMs, float volume) {
   const size_t totalSamples = SAMPLE_RATE * durationMs / 1000;
   int32_t txBuffer[128];
@@ -302,18 +320,23 @@ void playWarningPrompt() {
   writeI2sTone(0.0f, 80, 0.0f);
   writeI2sTone(880.0f, 360, 0.35f);
 }
+#endif
 
 void runAngryAlert(uint32_t alertMs) {
   const uint32_t endAt = millis() + max<uint32_t>(alertMs, 1000);
   uint32_t lastBlink = 0;
   bool on = false;
+#if ENABLE_AUDIO_PROMPT
   bool promptPlayed = false;
+#endif
 
   while (static_cast<int32_t>(endAt - millis()) > 0) {
+#if ENABLE_AUDIO_PROMPT
     if (!promptPlayed) {
       promptPlayed = true;
       playWarningPrompt();
     }
+#endif
     if (millis() - lastBlink >= 180) {
       lastBlink = millis();
       on = !on;
