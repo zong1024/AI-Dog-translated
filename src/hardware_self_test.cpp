@@ -16,8 +16,15 @@ constexpr int I2S_BCLK_PIN = 4;
 constexpr int I2S_LRCLK_PIN = 5;
 constexpr int I2S_DIN_PIN = 6;
 
+#ifndef USE_BUILTIN_STATUS_LED
+#define USE_BUILTIN_STATUS_LED 0
+#endif
+
+#if USE_BUILTIN_STATUS_LED
+#else
 constexpr int LED_DATA_PIN = 10;
 constexpr int LED_COUNT = 8;
+#endif
 
 constexpr uint32_t SAMPLE_RATE = 16000;
 constexpr uint32_t GPS_TEST_MS = 12000;
@@ -26,7 +33,9 @@ constexpr uint32_t MIC_MIN_AVG_AMPLITUDE = 20;
 
 HardwareSerial GpsSerial(1);
 TinyGPSPlus gps;
+#if !USE_BUILTIN_STATUS_LED
 CRGB leds[LED_COUNT];
+#endif
 
 uint32_t gpsChars = 0;
 uint32_t gpsSentences = 0;
@@ -41,25 +50,42 @@ void logLine(const char *message) {
 }
 
 void setLed(int index, const CRGB &color) {
+#if USE_BUILTIN_STATUS_LED
+  if (index == 0) {
+    neopixelWrite(RGB_BUILTIN, color.r, color.g, color.b);
+  }
+#else
   if (index >= 0 && index < LED_COUNT) {
     leds[index] = color;
     FastLED.show();
   }
+#endif
 }
 
 void setAll(const CRGB &color) {
+#if USE_BUILTIN_STATUS_LED
+  neopixelWrite(RGB_BUILTIN, color.r, color.g, color.b);
+#else
   fill_solid(leds, LED_COUNT, color);
   FastLED.show();
+#endif
 }
 
 void bootAnimation() {
   setAll(CRGB::Black);
   for (int round = 0; round < 2; ++round) {
+#if USE_BUILTIN_STATUS_LED
+    setAll(CRGB::White);
+    delay(160);
+    setAll(CRGB::Black);
+    delay(120);
+#else
     for (int i = 0; i < LED_COUNT; ++i) {
       setAll(CRGB::Black);
       setLed(i, CRGB::White);
       delay(80);
     }
+#endif
   }
   setAll(CRGB::Black);
 }
@@ -160,18 +186,33 @@ void testMic() {
 }
 
 void showFinalResult() {
+#if USE_BUILTIN_STATUS_LED
+  static uint8_t phase = 0;
+  const CRGB gpsColor = gpsFixOk ? CRGB::Green : (gpsDataOk ? CRGB::Yellow : CRGB::Red);
+  const CRGB micColor = micOk ? CRGB::Green : CRGB::Red;
+  const CRGB colors[] = {gpsColor, micColor, CRGB::Blue, CRGB::Black};
+  setAll(colors[phase]);
+  phase = (phase + 1) % 4;
+#else
   setAll(CRGB::Black);
   setLed(0, gpsFixOk ? CRGB::Green : (gpsDataOk ? CRGB::Yellow : CRGB::Red));
   setLed(1, micOk ? CRGB::Green : CRGB::Red);
   setLed(2, CRGB::Blue);
+#endif
 }
 
 void printLegend() {
   Serial.println();
   Serial.println("Hardware self-test LED legend:");
+#if USE_BUILTIN_STATUS_LED
+  Serial.println("Built-in RGB cycles after self-test: GPS color, MIC color, blue heartbeat, off");
+  Serial.println("GPS color: green=fix, yellow=NMEA/no fix, red=no data");
+  Serial.println("MIC color: green=audio amplitude detected, red=no signal");
+#else
   Serial.println("LED0 GPS: green=fix, yellow=NMEA/no fix, red=no data");
   Serial.println("LED1 MIC: green=audio amplitude detected, red=no signal");
   Serial.println("LED2 RUN: blue=firmware running");
+#endif
   Serial.println();
 }
 
@@ -180,8 +221,12 @@ void printLegend() {
 void setup() {
   Serial.begin(DEBUG_BAUD, SERIAL_8N1, DEBUG_RX_PIN, DEBUG_TX_PIN);
   delay(1000);
+#if USE_BUILTIN_STATUS_LED
+  pinMode(RGB_BUILTIN, OUTPUT);
+#else
   FastLED.addLeds<WS2812B, LED_DATA_PIN, GRB>(leds, LED_COUNT);
   FastLED.setBrightness(48);
+#endif
   GpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, -1);
 
   printLegend();
@@ -194,5 +239,5 @@ void setup() {
 
 void loop() {
   showFinalResult();
-  delay(1000);
+  delay(1200);
 }
